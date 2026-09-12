@@ -1,0 +1,979 @@
+{
+  "name": "AirFlow2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "iot-data",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d73084f9-201f-42e8-bbfa-7084606c5c9f",
+      "name": "IoT Data Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -160
+      ],
+      "webhookId": "iot-data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Valida e processa dados IoT no novo formato\nconst webhookData = $input.first().json;\nconst iotData = webhookData.body;\n\n// Validação básica dos dados\nconst requiredFields = ['id', 'CO2', 'PM1_0', 'PM2_5', 'PM4_0', 'PM_10', 'TypPS', 'T', 'H', 'P', 'G', 'sIAQ'];\nconst missingFields = requiredFields.filter(field => !iotData[field]);\n\nif (missingFields.length > 0) {\n  throw new Error(`Campos obrigatórios ausentes: ${missingFields.join(', ')}`);\n}\n\n// Valida valores numéricos\nconst numericFields = ['CO2', 'PM1_0', 'PM2_5', 'PM4_0', 'PM_10', 'TypPS', 'T', 'H', 'P', 'G', 'sIAQ'];\nconst invalidFields = numericFields.filter(field => {\n  const value = iotData[field];\n  return value !== undefined && (isNaN(parseFloat(value)) || parseFloat(value) < 0);\n});\n\nif (invalidFields.length > 0) {\n  throw new Error(`Valores inválidos para campos: ${invalidFields.join(', ')}`);\n}\n\n// Processa e normaliza os dados\nconst processedData = {\n  sensor_id: iotData.id,\n  timestamp: $now,\n  pollutants: {\n    co2: parseFloat(iotData.CO2) || null,\n    pm25: parseFloat(iotData.PM2_5) || null,\n    pm10: parseFloat(iotData.PM_10) || null,\n    pm1: parseFloat(iotData.PM1_0) || null,\n    pm4: parseFloat(iotData.PM4_0) || null,\n    co: parseFloat(iotData.TypPS) || null,\n    gas: parseFloat(iotData.G) || null\n  },\n  environmental: {\n    temperature: parseFloat(iotData.T) || null,\n    humidity: parseFloat(iotData.H) || null,\n    pressure: parseFloat(iotData.P) || null\n  },\n  air_quality_index: parseFloat(iotData.sIAQ) || null,\n  validation_status: 'valid',\n  processed_at: new Date().toISOString()\n};\n\nreturn {\n  json: processedData\n};"
+      },
+      "id": "9a9333a0-b08b-4e36-a19d-461691fea710",
+      "name": "Validate IoT Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "iot_sensor_data",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "sensor_id",
+              "fieldValue": "={{ $json.sensor_id }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            },
+            {
+              "fieldId": "pm25",
+              "fieldValue": "={{ $json.pollutants.pm25 }}"
+            },
+            {
+              "fieldId": "pm10",
+              "fieldValue": "={{ $json.pollutants.pm10 }}"
+            },
+            {
+              "fieldId": "pm1",
+              "fieldValue": "={{ $json.pollutants.pm1 }}"
+            },
+            {
+              "fieldId": "pm4",
+              "fieldValue": "={{ $json.pollutants.pm4 }}"
+            },
+            {
+              "fieldId": "temperature",
+              "fieldValue": "={{ $json.environmental.temperature }}"
+            },
+            {
+              "fieldId": "humidity",
+              "fieldValue": "={{ $json.environmental.humidity }}"
+            },
+            {
+              "fieldId": "validation_status",
+              "fieldValue": "={{ $json.validation_status }}"
+            },
+            {
+              "fieldId": "processed_at",
+              "fieldValue": "={{ $json.processed_at }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $json.timestamp }}"
+            },
+            {
+              "fieldId": "co2",
+              "fieldValue": "={{ $json.pollutants.co2 }}"
+            },
+            {
+              "fieldId": "gas",
+              "fieldValue": "={{ $json.pollutants.gas }}"
+            },
+            {
+              "fieldId": "air_quality_index",
+              "fieldValue": "={{ $json.air_quality_index }}"
+            },
+            {
+              "fieldId": "typps",
+              "fieldValue": "={{ $json.pollutants.co }}"
+            },
+            {
+              "fieldId": "pressure",
+              "fieldValue": "={{ $json.environmental.pressure }}"
+            }
+          ]
+        }
+      },
+      "id": "98449961-f45e-4c06-aea5-45cb529ba734",
+      "name": "Save IoT Data",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        -160
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "UBNNeFxCO1lvEaTY",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Processa a análise da IA e gera alertas\nconst aiResponse = $input.first().json.output;\nlet analysis;\n\ntry {\n  // Tenta extrair JSON da resposta da IA\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    analysis = JSON.parse(jsonMatch[0]);\n  }\n} catch (error) {\n  console.error('Erro ao processar resposta da IA:', error);\n  analysis = {\n    risk_level: 'unknown',\n    affected_diseases: []\n  };\n}\nconst alert = {analysis};\n\nreturn {\n  json: alert\n}\n\n\n\n\n"
+      },
+      "id": "7fa3b335-4edc-46cf-981f-3cb2a4283dd9",
+      "name": "Process Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "alert_notifications",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "alert_id",
+              "fieldValue": "={{ $json.analysis.alert[0].alert_id }}"
+            },
+            {
+              "fieldId": "sent_at",
+              "fieldValue": "={{ $json.analysis.alert[0].timestamp }}"
+            },
+            {
+              "fieldId": "message_content",
+              "fieldValue": "={{ $json.analysis.toJsonString() }}"
+            },
+            {
+              "fieldId": "notification_type",
+              "fieldValue": "alert"
+            },
+            {
+              "fieldId": "recipient",
+              "fieldValue": "contextNet"
+            }
+          ]
+        }
+      },
+      "id": "c2cc5188-f372-4969-8ff8-484319c7b8c6",
+      "name": "Save Alert",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        320
+      ],
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "UBNNeFxCO1lvEaTY",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Abaixo seguem os poluentes que estão acima do limete baixo, seguindo o padrão da mensagem abaixo:\n{{ $json.analisys.toJsonString() }}",
+        "options": {
+          "systemMessage": "=Objetivo:\nVocê é um assistente responsável por analisar todas as mensagens json que são enviadas e validar se os poluentes enviados com os valores informados e threshold podem trazer algum risco a saude dos pacientes que possuem doeças respitatórias.\n\nPara fazer essa análise você deve serguir os seguintes passos:\n## Intruções\nPasso 1: Receber os parametros do prompt do usuário contendo as informações de sensores que estão com poluentes acima de um valor permitido para a saúde.\nA mensagem json pode possuir diversos alertas que serão identificados pelo campo alert_id.\n\nPasso 2:\nA mensagem contendo os sensores que estão com poluentes a serem utilizados no passo 3 é:\n{{ $json.jsonMatch[0] }}\n\nPasso 2: \nA sua base de conhecimento (RAG) deve ser as tools disease_mappings associada nesse agente.\n\nPasso 3:\nBusque quais doenças estão associadas na tool disease_mappings.\nBusque a coluna config_value que irá trazer um json como o exemplo abaixo:\n{\n  \"poluentes\": [\n    {\n      \"nome\": \"PM2.5 e PM10\",\n      \"tempo_exposicao\": {\n        \"curto_prazo\": {\n          \"doencas\": [\n            \"asma\",\n            \"bronquite\",\n            \"irritação respiratória\"\n          ],\n          \"gravidade\": \"leve a moderada\",\n          \"intervalo\": \"minutos até 7 dias\"\n        },\n        \"longo_prazo\": {\n          \"doencas\": [\n            \"câncer de pulmão\",\n            \"doenças cardiovasculares (AVC, infarto)\",\n            \"declínio cognitivo\",\n            \"demência\"\n          ],\n          \"gravidade\": \"grave\",\n          \"intervalo\": \"≥6 meses a anos\"\n        },\n        \"medio_prazo\": {\n          \"doencas\": [\n            \"doença pulmonar obstrutiva crônica (DPOC)\",\n            \"agravamento de doenças cardíacas\",\n            \"redução da função pulmonar\"\n          ],\n          \"gravidade\": \"moderada\",\n          \"intervalo\": \"1 semana até 3 meses\"\n        }\n      }\n    },\n    {\n      \"nome\": \"PM4 e PM1\",\n      \"tempo_exposicao\": {\n        \"curto_prazo\": {\n          \"doencas\": [\n            \"irritação respiratória\",\n            \"inflamação sistêmica leve\"\n          ],\n          \"gravidade\": \"leve\",\n          \"intervalo\": \"minutos até 7 dias\"\n        },\n        \"longo_prazo\": {\n          \"doencas\": [\n            \"comprometimento neurológico\",\n            \"doenças cardíacas\",\n            \"declínio cognitivo\"\n          ],\n          \"gravidade\": \"grave\",\n          \"intervalo\": \"≥6 meses a anos\"\n        },\n        \"medio_prazo\": {\n          \"doencas\": [\n            \"risco cardiovascular aumentado\",\n            \"redução da função pulmonar\"\n          ],\n          \"gravidade\": \"moderada\",\n          \"intervalo\": \"1 semana até 3 meses\"\n        }\n      }\n    },\n    {\n      \"nome\": \"CO\",\n      \"tempo_exposicao\": {\n        \"curto_prazo\": {\n          \"doencas\": [\n            \"dor de cabeça\",\n            \"náuseas\",\n            \"confusão mental\",\n            \"fadiga\"\n          ],\n          \"gravidade\": \"moderada\",\n          \"intervalo\": \"minutos até algumas horas\"\n        },\n        \"longo_prazo\": {\n          \"doencas\": [\n            \"agravamento de doenças cardíacas crônicas\",\n            \"danos neurológicos crônicos\"\n          ],\n          \"gravidade\": \"grave\",\n          \"intervalo\": \"≥6 meses a anos\"\n        },\n        \"medio_prazo\": {\n          \"doencas\": [\n            \"problemas cardíacos (angina)\",\n            \"tontura persistente\"\n          ],\n          \"gravidade\": \"moderada a grave\",\n          \"intervalo\": \"dias até algumas semanas\"\n        }\n      }\n    },\n    {\n      \"nome\": \"CO2\",\n      \"tempo_exposicao\": {\n        \"curto_prazo\": {\n          \"doencas\": [\n            \"dor de cabeça leve\",\n            \"dificuldade de concentração\",\n            \"fadiga\"\n          ],\n          \"gravidade\": \"leve\",\n          \"intervalo\": \"minutos até 7 dias\"\n        },\n        \"longo_prazo\": {\n          \"doencas\": [\n            \"problemas cardiovasculares\",\n            \"distúrbios neurofisiológicos persistentes\"\n          ],\n          \"gravidade\": \"grave\",\n          \"intervalo\": \"≥6 meses a anos\"\n        },\n        \"medio_prazo\": {\n          \"doencas\": [\n            \"elevação da pressão arterial\",\n            \"redução da capacidade cognitiva\"\n          ],\n          \"gravidade\": \"moderada\",\n          \"intervalo\": \"1 semana até 3 meses\"\n        }\n      }\n    },\n    {\n      \"nome\": \"IAQ (Índice Geral de Qualidade do Ar)\",\n      \"tempo_exposicao\": {\n        \"curto_prazo\": {\n          \"doencas\": [\n            \"irritação olhos, nariz e garganta\",\n            \"dor de cabeça\",\n            \"alergias respiratórias\"\n          ],\n          \"gravidade\": \"leve\",\n          \"intervalo\": \"minutos até 7 dias\"\n        },\n        \"longo_prazo\": {\n          \"doencas\": [\n            \"doenças respiratórias crônicas\",\n            \"doenças cardíacas\",\n            \"câncer\",\n            \"distúrbios neurológicos\"\n          ],\n          \"gravidade\": \"grave\",\n          \"intervalo\": \"≥6 meses a anos\"\n        },\n        \"medio_prazo\": {\n          \"doencas\": [\n            \"asma\",\n            \"bronquite\",\n            \"fadiga crônica\",\n            \"dificuldade de concentração\"\n          ],\n          \"gravidade\": \"moderada\",\n          \"intervalo\": \"1 semana até 3 meses\"\n        }\n      }\n    }\n  ]\n}\nNo json acima para encontrar a doença associada procure o campo \"nome\" e compare com o valor do campo poluente.\nBusque as doenças relacionadas na lista \"doencas\" que sejam de \"curto_prazo\".  \nFaça esse paço para cada um dos sensores e poluentes desses sensores.\n\nPasso 4:\nA doenças encontradas no passo anterior de cada sensor e cada poluente irão ser utilizadas como saida em uma mensagem json.\n\nExemplo:\nSe no passo 3 o poluente \"CO2\" estava em critical deve retornar os valores [\"dor de cabeça leve\", \"dificuldade de concentração\", \"fadiga\"], considerando sempre o grupo de \"curto_prazo\"\n\nPasso Final: \nNão gere nada mais do que a mensagem JSON de saida. \nCaso não encontre nenhuma doença para o sensor, gere uma mensagem apenas com o campo doenca_afetada = Não Encontrada.\n\nAntes de gerar a mensagem, utilize a tool vector_base para validar quais doenças podem ser associadas ao poluentes encontrado. Analise se trouxe alguma doença diferentes das encontradas ou se será necessário alterar alguma doença baseado nessa tool.\n\nCaso encontre alguma doença associada gere o json conforme o exemplo abaixo.\n\nPara os campos da mensagem sigas as instruções para gerar:\n- alert_id = \"alert_\" + gerar um numero randomico baseado no {{ $now }}\n- timestamp = {{ $now }}\n- sensor = sensor_id\n- risk_level = usar o valor que está no json do usuario no campo \"risk_level\"\n- disease = lista das doenças que obteve no passo 3\nexemplo de json de saida:\n{\n  \"alert\": [\n    {\n      \"alert_id\": \"alert_1705312200000\",\n      \"timestamp\": \"2024-01-15T11:30:00Z\",\n      \"sensores\": [\n        {\n          \"sensor_id\": \"IAQ_6227821\",\n          \"poluentes\": [\n            {\n              \"poluente\": \"CO2\",\n              \"risk_level\": \"critical\",\n              \"affected_diseases\": {\n                \"disease\": [\n                  \"dor de cabeça leve\",\n                  \"dificuldade de concentração\",\n                  \"fadiga\"\n                ]\n              }\n            },\n            {\n              \"poluente\": \"PM2.5\",\n              \"risk_level\": \"moderate\",\n              \"affected_diseases\": {\n                \"disease\": [\n                  \"asma\",\n                  \"bronquite\",\n                  \"irritação respiratória\"\n                ]\n              }\n            }\n          ]\n        },\n        {\n          \"sensor_id\": \"6227821\",\n          \"poluentes\": [\n            {\n              \"poluente\": \"PM4\",\n              \"risk_level\": \"high\",\n              \"affected_diseases\": {\n                \"disease\": [\n                  \"irritação respiratória\",\n                  \"inflamação sistêmica leve\"\n                ]\n              }\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        400,
+        360
+      ],
+      "id": "d2b63db4-0363-4db9-8cad-bab5d35a53a5",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "system_config",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "2"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        620,
+        580
+      ],
+      "id": "53277209-d207-4688-86d1-2389ca99fb40",
+      "name": "disease_mappings",
+      "credentials": {
+        "supabaseApi": {
+          "id": "UBNNeFxCO1lvEaTY",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        600
+      ],
+      "id": "3c44e568-062a-4852-b336-f922e7bbeda0",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "q2LxXy3bzKckHZ1x",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "11353007-28a0-43a4-9c0d-a3806b4adb5e",
+              "leftValue": "={{ $json.analysis.alert.length }}",
+              "rightValue": "={{0}}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        360
+      ],
+      "id": "6f1925f7-37ae-4e97-829c-d2ed7c302a61",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "formTitle": "Add Document",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "File",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        860,
+        -360
+      ],
+      "id": "96053a17-5543-4264-be65-b564a3cc05d1",
+      "name": "On form submission",
+      "webhookId": "0710971d-e35e-4b02-b38f-6034990a9802"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "tableName": "documents",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        -360
+      ],
+      "id": "4c3f72a3-6283-4495-adb0-02ae703c2bdc",
+      "name": "Postgres PGVector Store",
+      "credentials": {
+        "postgres": {
+          "id": "uN42S1zxBWXmrbze",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1000,
+        -140
+      ],
+      "id": "19f4adbb-8971-4efe-83f6-79ab0bbd1cca",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "q2LxXy3bzKckHZ1x",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "loader": "pdfLoader",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        -140
+      ],
+      "id": "5eedbcf3-b543-4f27-916d-e7d74daff959",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        60
+      ],
+      "id": "f6037d10-1413-4d90-8bdc-55cbec536b00",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        740
+      ],
+      "id": "81da2d93-266b-462c-9272-1f2cfbe3a61f",
+      "name": "Embeddings OpenAI1",
+      "credentials": {
+        "openAiApi": {
+          "id": "q2LxXy3bzKckHZ1x",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "document_base",
+        "toolDescription": "Busca em uma base vetorial documentos com informações sobre relação de poluentes e saúde.",
+        "tableName": "documents",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        580
+      ],
+      "id": "d0d387e4-a38a-42ec-a4b6-af53e658e348",
+      "name": "vector_base",
+      "credentials": {
+        "postgres": {
+          "id": "uN42S1zxBWXmrbze",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## \nPasso 1:\nGrava todos os dados recebidos dos sensores na base de dados histórica\nRetorno:\nRetorna se a gravação foi realizada com sucesso ou não",
+        "height": 620,
+        "width": 1220
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -420
+      ],
+      "id": "c3d08f25-a884-4ead-a219-d087d2f4b7e6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## \nPasso 2:\nBusca a cada 5 minutos as medições realizadas pelos sensores para validar se é necessário gerar alertas de saude.\nPara isso busca na base as métricas e aciona os agentes de IA para inferencia. \nHavendo algo para ser alertado, gera a mensagem a ser disparada no contextnet",
+        "height": 680,
+        "width": 2620,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        220
+      ],
+      "id": "427bf1c3-0aba-4d7c-86d1-866c27800455",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -740,
+        380
+      ],
+      "id": "eec24dc6-197c-4358-940d-3097db667f72",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    sensor_id,\n    AVG(pm25) as avg_pm25,\n    AVG(pm10) as avg_pm10,\n    AVG(pm1) as avg_pm1,\n    AVG(pm4) as avg_pm4,\n    AVG(co2) as avg_co2,\n    AVG(temperature) as avg_temperature,\n    AVG(humidity) as avg_humidity,\n    AVG(pressure) as avg_pressure,\n    AVG(gas) as avg_gas,\n    AVG(typPS) as avg_co,\n    AVG(air_quality_index) as avg_air_quality_index,\n    COUNT(*) as total_readings\nFROM iot_sensor_data \nWHERE timestamp >= NOW() - INTERVAL '5 min'\n  AND validation_status = 'valid'\nGROUP BY sensor_id\nORDER BY sensor_id; ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -560,
+        380
+      ],
+      "id": "d3aace99-76aa-47cd-9133-f88952543bbd",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "uN42S1zxBWXmrbze",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        640
+      ],
+      "id": "34b1f701-f5a1-4b66-82f6-9d2fcaa02d56",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "q2LxXy3bzKckHZ1x",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Postgres').all() }}",
+        "options": {
+          "systemMessage": "=Objetivo:\nVocê é um assistente responsável por analisar todas as mensagens json que são enviadas por equipamentos de IOT e validar se os poluentes enviados estão acima do valor low para cada um dos poluentes.\nPara fazer essa análise você deve serguir os seguintes passos:\n## Instruções\nPasso 1: Receber os parametros do prompt do usuário contendo as informações dos sensores de poluição. Lembrando que você receberá um json contendo um conjunto de poluentes por sensor, podendo ser 1 ou mais sensores.\n\nPasso 2: \nA sua base de conhecimento (RAG) deve ser a tool com o nome de pollutant_thresholds associadas nesse agente.\nVocê só poderá usar essa base de dados.\n\nPasso 3:\nBusque em pollutant_thresholds tool cada um dos poluentes informados sendo:\n\"nome\": \"PM2.5\" = avg_pm25 \n\"nome\": \"PM10\" = avg_pm10\n\"nome\": \"PM1\" = avg_pm1\n\"nome\": \"PM4\" = avg_pm4\n\"nome\": \"CO2\" = avg_co2\n\"nome\": \"CO\" = avg_co\n\"nome\": \"IAQ\" = avg_air_quality_index\n\nA coluna config_value irá retornar um json como o exemplo abaixo:\n{\n  \"poluentes\": [\n    {\n      \"nome\": \"PM2.5\",\n      \"unidade\": \"µg/m³\",\n      \"referencia\": \"EPA / OMS\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 12,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 55.4,\n          \"min\": 35.5\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 55.5\n        },\n        \"moderate\": {\n          \"max\": 35.4,\n          \"min\": 12.1\n        }\n      }\n    },\n    {\n      \"nome\": \"PM10\",\n      \"unidade\": \"µg/m³\",\n      \"referencia\": \"EPA / OMS\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 54,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 254,\n          \"min\": 155\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 255\n        },\n        \"moderate\": {\n          \"max\": 154,\n          \"min\": 55\n        }\n      }\n    },\n    {\n      \"nome\": \"PM4\",\n      \"unidade\": \"µg/m³\",\n      \"referencia\": \"EPA / Padrão Mercado\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 10,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 50,\n          \"min\": 25.1\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 50.1\n        },\n        \"moderate\": {\n          \"max\": 25,\n          \"min\": 10.1\n        }\n      }\n    },\n    {\n      \"nome\": \"PM1\",\n      \"unidade\": \"µg/m³\",\n      \"referencia\": \"EPA / Padrão Mercado\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 10,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 40,\n          \"min\": 20.1\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 40.1\n        },\n        \"moderate\": {\n          \"max\": 20,\n          \"min\": 10.1\n        }\n      }\n    },\n    {\n      \"nome\": \"CO2\",\n      \"unidade\": \"ppm\",\n      \"referencia\": \"ANVISA / ASHRAE\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 1000,\n          \"min\": 400\n        },\n        \"high\": {\n          \"max\": 2000,\n          \"min\": 1501\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 2001\n        },\n        \"moderate\": {\n          \"max\": 1500,\n          \"min\": 1001\n        }\n      }\n    },\n    {\n      \"nome\": \"CO\",\n      \"unidade\": \"ppm\",\n      \"referencia\": \"EPA\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 9,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 100,\n          \"min\": 35.1\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 100.1\n        },\n        \"moderate\": {\n          \"max\": 35,\n          \"min\": 9.1\n        }\n      }\n    },\n    {\n      \"nome\": \"IAQ\",\n      \"unidade\": \"índice\",\n      \"referencia\": \"Índice Geral EPA\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 50,\n          \"min\": 0\n        },\n        \"high\": {\n          \"max\": 150,\n          \"min\": 101\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 151\n        },\n        \"moderate\": {\n          \"max\": 100,\n          \"min\": 51\n        }\n      }\n    }\n  ]\n}\nAnalise cada poluente, de cada sensor,  informado pelo usuário, buscando os valores retornados da tool pollutant_thresholds e identifique se está como \"low\", \"high\", \"critical\" ou \"moderate\".\nexemplo de como fazer:\n- Valor recebido pelo usuário de \"CO2\" = avg_co2\n- Valores de thresholds buscados do banco para \"nome\": \"CO2\",\n      \"unidade\": \"ppm\",\n      \"referencia\": \"ANVISA / ASHRAE\",\n      \"thresholds\": {\n        \"low\": {\n          \"max\": 1000,\n          \"min\": 400\n        },\n        \"high\": {\n          \"max\": 2000,\n          \"min\": 1501\n        },\n        \"critical\": {\n          \"max\": null,\n          \"min\": 2001\n        },\n        \"moderate\": {\n          \"max\": 1500,\n          \"min\": 1001\n        }\n      }\nSe avg_co2 <= 1000 valor igual \"low\"\nSe avg_co2 > 1001 e avg_co2 <= 1500 valor igual \"moderate\"\nSe avg_co2 > 1501 e avg_co2 <= 2000 valor igual \"high\"\nSe avg_co2 > 2000 valor igual \"critical\"\nSe o poluente estiver com valor igual \"low\" não deve ser considerado para os próximos passos.\nPara qualquer valor diferente de \"low\" deve guardar o poluente. Exemplo:\nSe \"CO2\" > 1000 deve guardar esse poluente para ser usado no passo 5 e fazer esse passo para cada poluente vindo no prompt de cada sensor.\npasso 4:\nexemplo de json de saida:\n{\n  \"alert_id\": \"threshold_1705312200000\",\n  \"timestamp\": \"2024-01-15T10:30:00Z\",\n  \"sensor_id\": IAQ_6223456\n  \"thresholds\":{\n    \"poluente\": \"co2\",\n    \"indicador\": {\n      \"risk_level\": \"moderate\",\n      \"value\": {{ $json.avg_co2 }}\n    },\n    \"poluente\":\"pm25\",\n    \"indicador\":{\n      \"risk_level\": \"critical\",\n      \"value\": {{ $json.avg_pm25 }}\n    }\n}\nPasso 5: \nNão gere nada mais do que a mensagem JSON de saida. \nCaso não encontre nenhum poluente com valores diferentes de low para nenhum dos sensores gere uma mensagem json apenas com o campo threshold_afected = Não Encontrado.\n\nSó inclua na mensagem de saida o poluente que tenha o threshold diferente de \"low\". \n\nPara os campos da mensagem sigas as instruções para gerar:\n- threshold_id = \"threshold_\" + gerar um numero randomico baseado no {{ $now }}\n- timestamp = {{ $now }}\n- sensor = {{ $json.sensor_id }}\n- risk_level = usar o valor que obteve da tool pollutant_thresholds do passo 3 indicando se é high, critical ou moderate."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        -400,
+        380
+      ],
+      "id": "f137ac0b-6b23-4b7b-a235-1f064cc4de25",
+      "name": "AI_AGENT_ALERT"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "system_config",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "1"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        640
+      ],
+      "id": "6bf9d8bf-bca7-49cd-80bd-51db42b491b7",
+      "name": "pollutant_thresholds",
+      "notesInFlow": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "UBNNeFxCO1lvEaTY",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Processa a análise da IA e gera alertas\nconst aiResponse = $input.first().json.output;\nlet analisys;\n\ntry {\n  // Tenta extrair JSON da resposta da IA\n  if (aiResponse.length > 0) {\n    analisys = JSON.parse(aiResponse);\n  } else {\n    analisys = {};\n  }\n} catch (error) {\n  console.log('Erro ao processar resposta da IA:', error);\n}\nconst alert = {analisys};\nreturn {\n  json: alert\n}\n\n\n\n\n"
+      },
+      "id": "2d86d95d-1a3e-4d19-a4f7-db8971dbacbb",
+      "name": "Process Analysis1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        380
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "errorMessage": "An error ocurred"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        500
+      ],
+      "id": "56b2f26c-2ab1-435d-8818-40970e132610",
+      "name": "Stop and Error"
+    },
+    {
+      "parameters": {
+        "content": "## \nPasso 2:Vetoriza documentos cientificos para apoiar as analises dos agentes.",
+        "height": 620,
+        "width": 1380,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -420
+      ],
+      "id": "64f11267-bf43-40e1-8f2a-19bd8162d0fc",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f44c04d6-b132-484d-ae98-e33bd1f3e802",
+              "leftValue": "={{ $input.item.json.analisys.threshold_afected }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        160,
+        380
+      ],
+      "id": "a193393e-a99d-4703-8b6e-a435e2cc61da",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "topic": "AppModel",
+        "options": {
+          "acks": false
+        }
+      },
+      "type": "n8n-nodes-base.kafka",
+      "typeVersion": 1,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "5fd004ac-0cd6-480d-8ca4-c2395f85d927",
+      "name": "Kafka",
+      "alwaysOutputData": false,
+      "credentials": {
+        "kafka": {
+          "id": "Z1nch7rEIZkQHd5Y",
+          "name": "Kafka account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7d653dce-7822-4ed4-a629-e07265bdabcc",
+              "name": "message_content",
+              "value": "={{ $('If').item.json.analysis.alert[0].toJsonString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        320
+      ],
+      "id": "67819bea-1088-4561-b2f8-a23d26e4db4d",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "//// Processa a análise da IA e gera alertas\n//const aiResponse = $input.item.json.message_content.toString();\n//let analisys;\n\n//try {\n//  // Tenta extrair JSON da resposta da IA\n//  if (aiResponse.length > 0) {\n//    analisys = JSON.parse(aiResponse);\n//  } else {\n//    analisys = {};\n//  }\n//} catch (error) {\n//  console.log('Erro ao processar resposta da IA:', error);\n//}\n//const alert = {analisys};\n//return {\n//  json: alert\n//}\n\nconst aiResponse = $json.message_content\nlet analisys;\n\ntry {\nif (aiResponse.length > 0) {\n    analisys = JSON.parse(aiResponse);\n  } else {\n    analisys = {};\n  }\n} catch (error) {\n  console.log('Erro ao processar resposta da IA:', error);\n}\nconst alert = {analisys};\nreturn {\n  json: alert\n}\n\n\n\n"
+      },
+      "id": "3330acec-bc7d-4425-90f7-14f06561f5f1",
+      "name": "Process Analysis4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        320
+      ],
+      "alwaysOutputData": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "IoT Data Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate IoT Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate IoT Data": {
+      "main": [
+        [
+          {
+            "node": "Save IoT Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save IoT Data": {
+      "main": [
+        []
+      ]
+    },
+    "Process Analysis": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Alert": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "disease_mappings": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Process Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Save Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop and Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Postgres PGVector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Postgres PGVector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Postgres PGVector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "vector_base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "vector_base": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres": {
+      "main": [
+        [
+          {
+            "node": "AI_AGENT_ALERT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI_AGENT_ALERT",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pollutant_thresholds": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI_AGENT_ALERT",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI_AGENT_ALERT": {
+      "main": [
+        [
+          {
+            "node": "Process Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Analysis1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Process Analysis4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Analysis4": {
+      "main": [
+        [
+          {
+            "node": "Kafka",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "770191b4-3ced-4a6d-925e-0b42561f15be",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "fe3812398a33c17b37ccef8f17d668e20218af0a07779bbe3fc50ebd2ce570ca"
+  },
+  "id": "ljLO2mf9AfBQDfvE",
+  "tags": []
+}
